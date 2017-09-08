@@ -2,11 +2,13 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/git-lfs/git-lfs/filepathfilter"
 	"github.com/git-lfs/git-lfs/git"
+	"github.com/git-lfs/git-lfs/git/githistory/log"
 	"github.com/git-lfs/git-lfs/lfs"
 	"github.com/git-lfs/git-lfs/progress"
 	"github.com/git-lfs/git-lfs/tq"
@@ -47,7 +49,11 @@ func pull(remote string, filter *filepathfilter.Filter) {
 	}
 
 	pointers := newPointerMap()
+
 	meter := progress.NewMeter(progress.WithOSEnv(cfg.Os))
+	log := log.NewLogger(os.Stderr)
+	log.Enqueue(meter)
+
 	singleCheckout := newSingleCheckout()
 	q := newDownloadQueue(singleCheckout.manifest, remote, tq.WithProgress(meter))
 	gitscanner := lfs.NewGitScanner(func(p *lfs.WrappedPointer, err error) {

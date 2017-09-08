@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/git-lfs/git-lfs/git/githistory/log"
 	"github.com/git-lfs/git-lfs/lfs"
 	"github.com/git-lfs/git-lfs/localstorage"
 	"github.com/git-lfs/git-lfs/subprocess"
@@ -90,7 +91,7 @@ func cloneCommand(cmd *cobra.Command, args []string) {
 	if cloneFlags.NoCheckout || cloneFlags.Bare {
 		// If --no-checkout or --bare then we shouldn't check out, just fetch instead
 		cfg.CurrentRemote = remote
-		fetchRef("HEAD", filter)
+		fetchRef("HEAD", filter, (*log.Logger)(nil))
 	} else {
 		pull(remote, filter)
 		err := postCloneSubmodules(args)

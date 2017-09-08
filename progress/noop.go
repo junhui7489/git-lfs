@@ -1,5 +1,7 @@
 package progress
 
+import "github.com/git-lfs/git-lfs/git/githistory/log"
+
 func Noop() Meter {
 	return &nonMeter{}
 }
@@ -14,3 +16,6 @@ func (m *nonMeter) StartTransfer(name string)                                   
 func (m *nonMeter) TransferBytes(direction, name string, read, total int64, current int) {}
 func (m *nonMeter) FinishTransfer(name string)                                           {}
 func (m *nonMeter) Finish()                                                              {}
+
+func (m *nonMeter) Updates() <-chan *log.Update { return nil }
+func (m *nonMeter) Throttled() bool             { return false }

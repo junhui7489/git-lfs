@@ -2,10 +2,12 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/git-lfs/git-lfs/filepathfilter"
 	"github.com/git-lfs/git-lfs/git"
+	"github.com/git-lfs/git-lfs/git/githistory/log"
 	"github.com/git-lfs/git-lfs/lfs"
 	"github.com/git-lfs/git-lfs/progress"
 	"github.com/git-lfs/git-lfs/tq"
@@ -65,6 +67,9 @@ func fetchCommand(cmd *cobra.Command, args []string) {
 	gitscanner := lfs.NewGitScanner(nil)
 	defer gitscanner.Close()
 
+	log := log.NewLogger(os.Stderr)
+	defer log.Close()
+
 	include, exclude := getIncludeExcludeArgs(cmd)
 
 	if fetchAllArg {
@@ -77,7 +82,7 @@ func fetchCommand(cmd *cobra.Command, args []string) {
 		if len(cfg.FetchIncludePaths()) > 0 || len(cfg.FetchExcludePaths()) > 0 {
 			Print("Ignoring global include / exclude paths to fulfil --all")
 		}
-		success = fetchAll()
+		success = fetchAll(log)
 
 	} else { // !all
 		filter := buildFilepathFilter(cfg, include, exclude)
@@ -85,12 +90,12 @@ func fetchCommand(cmd *cobra.Command, args []string) {
 		// Fetch refs sequentially per arg order; duplicates in later refs will be ignored
 		for _, ref := range refs {
 			Print("Fetching %v", ref.Name)
-			s := fetchRef(ref.Sha, filter)
+			s := fetchRef(ref.Sha, filter, log)
 			success = success && s
 		}
 
 		if fetchRecentArg || cfg.FetchPruneConfig().FetchRecentAlways {
-			s := fetchRecent(refs, filter)
+			s := fetchRecent(refs, filter, log)
 			success = success && s
 		}
 	}
@@ -136,7 +141,7 @@ func pointersToFetchForRef(ref string, filter *filepathfilter.Filter) ([]*lfs.Wr
 }
 
 // Fetch all binaries for a given ref (that we don't have already)
-func fetchRef(ref string, filter *filepathfilter.Filter) bool {
+func fetchRef(ref string, filter *filepathfilter.Filter, log *log.Logger) bool {
 	pointers, err := pointersToFetchForRef(ref, filter)
 	if err != nil {
 		Panic(err, "Could not scan for Git LFS files")
@@ -169,7 +174,7 @@ func fetchPreviousVersions(ref string, since time.Time, filter *filepathfilter.F
 }
 
 // Fetch recent objects based on config
-func fetchRecent(alreadyFetchedRefs []*git.Ref, filter *filepathfilter.Filter) bool {
+func fetchRecent(alreadyFetchedRefs []*git.Ref, filter *filepathfilter.Filter, log *log.Logger) bool {
 	fetchconf := cfg.FetchPruneConfig()
 
 	if fetchconf.FetchRecentRefsDays == 0 && fetchconf.FetchRecentCommitsDays == 0 {
@@ -199,7 +204,7 @@ func fetchRecent(alreadyFetchedRefs []*git.Ref, filter *filepathfilter.Filter) b
 			} else {
 				uniqueRefShas[ref.Sha] = ref.Name
 				Print("Fetching %v", ref.Name)
-				k := fetchRef(ref.Sha, filter)
+				k := fetchRef(ref.Sha, filter, log)
 				ok = ok && k
 			}
 		}
@@ -223,16 +228,19 @@ func fetchRecent(alreadyFetchedRefs []*git.Ref, filter *filepathfilter.Filter) b
 	return ok
 }
 
-func fetchAll() bool {
-	pointers := scanAll()
+func fetchAll(log *log.Logger) bool {
+	pointers := scanAll(log)
 	Print("Fetching objects...")
 	return fetchAndReportToChan(pointers, nil, nil)
 }
 
-func scanAll() []*lfs.WrappedPointer {
+func scanAll(log *log.Logger) []*lfs.WrappedPointer {
 	// This could be a long process so use the chan version & report progress
 	Print("Scanning for all objects ever referenced...")
+
 	spinner := progress.NewSpinner()
+	log.Enqueue(spinner)
+
 	var numObjs int64
 
 	// use temp gitscanner to collect pointers
@@ -249,7 +257,7 @@ func scanAll() []*lfs.WrappedPointer {
 		}
 
 		numObjs++
-		spinner.Print(OutputWriter, fmt.Sprintf("%d objects found", numObjs))
+		spinner.Print(fmt.Sprintf("%d objects found", numObjs))
 		pointers = append(pointers, p)
 	})
 
@@ -263,7 +271,7 @@ func scanAll() []*lfs.WrappedPointer {
 		Panic(multiErr, "Could not scan for Git LFS files")
 	}
 
-	spinner.Finish(OutputWriter, fmt.Sprintf("%d objects found", numObjs))
+	spinner.Finish(fmt.Sprintf("%d objects found", numObjs))
 	return pointers
 }
 
@@ -280,7 +288,9 @@ func fetchAndReportToChan(allpointers []*lfs.WrappedPointer, filter *filepathfil
 		cfg.CurrentRemote = defaultRemote
 	}
 
-	ready, pointers, meter := readyAndMissingPointers(allpointers, filter)
+	log := log.NewLogger(os.Stderr)
+
+	ready, pointers, meter := readyAndMissingPointers(allpointers, filter, log)
 	q := newDownloadQueue(getTransferManifest(), cfg.CurrentRemote, tq.WithProgress(meter))
 
 	if out != nil {
@@ -332,8 +342,10 @@ func fetchAndReportToChan(allpointers []*lfs.WrappedPointer, filter *filepathfil
 	return ok
 }
 
-func readyAndMissingPointers(allpointers []*lfs.WrappedPointer, filter *filepathfilter.Filter) ([]*lfs.WrappedPointer, []*lfs.WrappedPointer, *progress.ProgressMeter) {
+func readyAndMissingPointers(allpointers []*lfs.WrappedPointer, filter *filepathfilter.Filter, log *log.Logger) ([]*lfs.WrappedPointer, []*lfs.WrappedPointer, *progress.ProgressMeter) {
 	meter := buildProgressMeter(false)
+	log.Enqueue(meter)
+
 	seen := make(map[string]bool, len(allpointers))
 	missing := make([]*lfs.WrappedPointer, 0, len(allpointers))
 	ready := make([]*lfs.WrappedPointer, 0, len(allpointers))

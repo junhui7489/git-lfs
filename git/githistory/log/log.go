@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/git-lfs/git-lfs/tools"
 	"github.com/olekukonko/ts"
 )
 
@@ -81,7 +80,7 @@ func (l *Logger) Close() {
 // Waitier creates and enqueues a new *WaitingTask.
 func (l *Logger) Waiter(msg string) *WaitingTask {
 	t := NewWaitingTask(msg)
-	l.enqueue(t)
+	l.Enqueue(t)
 
 	return t
 }
@@ -89,7 +88,7 @@ func (l *Logger) Waiter(msg string) *WaitingTask {
 // Percentage creates and enqueues a new *PercentageTask.
 func (l *Logger) Percentage(msg string, total uint64) *PercentageTask {
 	t := NewPercentageTask(msg, total)
-	l.enqueue(t)
+	l.Enqueue(t)
 
 	return t
 }
@@ -97,13 +96,13 @@ func (l *Logger) Percentage(msg string, total uint64) *PercentageTask {
 // List creates and enqueues a new *ListTask.
 func (l *Logger) List(msg string) *ListTask {
 	t := NewListTask(msg)
-	l.enqueue(t)
+	l.Enqueue(t)
 
 	return t
 }
 
-// enqueue enqueues the given Tasks "ts".
-func (l *Logger) enqueue(ts ...Task) {
+// Enqueue enqueues the given Tasks "ts".
+func (l *Logger) Enqueue(ts ...Task) {
 	if l == nil {
 		for _, t := range ts {
 			go func(t Task) {
@@ -198,13 +197,19 @@ func (l *Logger) logTask(task Task) {
 
 	var update *Update
 	for update = range task.Updates() {
+		if update == nil {
+			continue
+		}
+
 		if logAll || l.throttle == 0 || update.At.After(last.Add(l.throttle)) {
 			l.logLine(update.S)
 			last = update.At
 		}
 	}
 
-	l.log(fmt.Sprintf("%s, done\n", update.S))
+	if update != nil {
+		l.log(fmt.Sprintf("%s, done\n", update.S))
+	}
 }
 
 // logLine writes a complete line and moves the cursor to the beginning of the
@@ -213,9 +218,16 @@ func (l *Logger) logTask(task Task) {
 // It returns the number of bytes "n" written to the sink and the error "err",
 // if one was encountered.
 func (l *Logger) logLine(str string) (n int, err error) {
-	padding := strings.Repeat(" ", tools.MaxInt(0, l.widthFn()-len(str)))
+	padding := strings.Repeat(" ", maxInt(0, l.widthFn()-len(str)))
 
 	return l.log(str + padding + "\r")
+}
+
+func maxInt(a, b int) int {
+	if b > a {
+		return b
+	}
+	return a
 }
 
 // log writes a string verbatim to the sink.

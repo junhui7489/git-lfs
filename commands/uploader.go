@@ -11,6 +11,7 @@ import (
 	"github.com/git-lfs/git-lfs/config"
 	"github.com/git-lfs/git-lfs/errors"
 	"github.com/git-lfs/git-lfs/git"
+	"github.com/git-lfs/git-lfs/git/githistory/log"
 	"github.com/git-lfs/git-lfs/lfs"
 	"github.com/git-lfs/git-lfs/lfsapi"
 	"github.com/git-lfs/git-lfs/locking"
@@ -39,6 +40,7 @@ type uploadContext struct {
 	Manifest     *tq.Manifest
 	uploadedOids tools.StringSet
 
+	log   *log.Logger
 	meter progress.Meter
 	tq    *tq.TransferQueue
 
@@ -103,9 +105,13 @@ func newUploadContext(remote string, dryRun bool) *uploadContext {
 		allowMissing:   cfg.Git.Bool("lfs.allowincompletepush", false),
 	}
 
+	ctx.log = log.NewLogger(os.Stderr)
 	ctx.meter = buildProgressMeter(ctx.DryRun)
+
 	ctx.tq = newUploadQueue(ctx.Manifest, ctx.Remote, tq.WithProgress(ctx.meter), tq.DryRun(ctx.DryRun))
 	ctx.committerName, ctx.committerEmail = cfg.CurrentCommitter()
+
+	ctx.log.Enqueue(ctx.meter)
 
 	ourLocks, theirLocks, verifyState := verifyLocks(remote)
 	ctx.lockVerifyState = verifyState
